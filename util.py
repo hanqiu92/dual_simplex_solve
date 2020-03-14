@@ -159,8 +159,8 @@ def dicts_to_computable(A_dict,b_dict,sense_dict,c_dict,l_dict,u_dict,m,n):
 
 import pulp
 from pulp.solvers import PULP_CBC_CMD
-def solve_pulp(A_dict,b_dict,sense_dict,c_dict,l_dict,u_dict,m,n):
-    solver = PULP_CBC_CMD(msg=0)
+def solve_pulp(A_dict,b_dict,sense_dict,c_dict,l_dict,u_dict,m,n,msg=0):
+    solver = PULP_CBC_CMD(msg=msg)
     model = pulp.LpProblem("test",pulp.LpMinimize)
     model.solver = solver
 
