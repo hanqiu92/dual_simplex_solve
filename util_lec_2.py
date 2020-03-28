@@ -93,7 +93,7 @@ class Problem(object):
                 np.dot(self.l * (sol.sign == VarStatus.AT_LOWER_BOUND.value),sol.s))
     
     ## **************************
-    ## 原始/对偶线性约束的infeasibility评估
+    ## 原始/对偶线性约束的可行性评估
     def eval_primal_con_infeas(self,sol):
         ## A x - b
         return (self.A._mul_vector(sol.x) - self.b)
@@ -103,12 +103,15 @@ class Problem(object):
         return (self.AT._mul_vector(sol.lam) + sol.s - self.c)
 
     ## **************************
-    ## 原始/对偶变量上下界的infeasibility评估
+    ## 原始/对偶变量和基的可行性评估
+
+    ## 是否存在原始变量无界，也可以看作是基的对偶可行程度
     def eval_unbnd(self,sol):
         ## x = INF or -INF
         return ( ((self.bool_upper_unbounded) & (sol.sign == VarStatus.AT_UPPER_BOUND.value)) | \
                  ((self.bool_lower_unbounded) & (sol.sign == VarStatus.AT_LOWER_BOUND.value)) )
 
+    ## 解的原始可行程度
     def eval_primal_inf(self,sol):
         ## l <= x <= u
         primal_inf = np.maximum(sol.x - self.u,0) - np.maximum(self.l - sol.x,0)
@@ -116,6 +119,7 @@ class Problem(object):
         primal_inf[bool_unbnd] += INF
         return primal_inf
 
+    ## 解的对偶可行程度
     def eval_dual_inf(self,sol):
         ## s_u <= 0, s_l >= 0
         dual_inf = np.maximum(sol.s,0) * (sol.sign == VarStatus.AT_UPPER_BOUND.value) + \
@@ -124,8 +128,7 @@ class Problem(object):
         dual_inf[bool_unbnd] += np.abs(sol.s[bool_unbnd])
         return dual_inf
 
-    ## **************************
-    ## 基(B,L,U)与解(x,\lambda,s)的一致程度
+    ## 基(B,L,U)与解(x,\lambda,s)的一致程度，也可以看作是基的原始可行程度
     def eval_sign(self,sol):
         ## x_L = l_L, x_U = u_U
         bool_sign = np.zeros((self.m,),dtype=bool)

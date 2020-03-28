@@ -182,9 +182,11 @@ def solve_pulp(A_dict,b_dict,sense_dict,c_dict,l_dict,u_dict,m,n,msg=0):
     x = np.zeros((m,))
     for i in range(m):
         x[i] = x_pulp[i].value()
+    x[np.isnan(x)] = 0
     lam = np.zeros((n,))
     for j in range(n):
         lam[j] = cons_pulp[j].pi
+    lam[np.isnan(lam)] = 0
     return x,lam,model.status
 
 class Evaluator(object):
@@ -215,3 +217,86 @@ class Evaluator(object):
         return ('con inf={:.4e},var inf={:.4e},obj={:.4e}.'.format(
             self.eval_con_inf(x),self.eval_primal_inf(x),self.eval_primal_obj(x)
         ))
+
+
+import time
+import traceback
+import glob
+np.set_printoptions(suppress=False,precision=4)
+
+def test(solve_func,max_problem_size=1e20,model_fnames=None,output_fname=None,random_seed=None):
+    '''
+    测试函数，各参数的定义如下：
+    solve_func对应所实现的DS求解流程入口
+    problem_size代表最大可容许的问题矩阵A的非零元素个数，用于约束测试问题的难度
+    model_fnames对应一个测试问题路径的list，进一步提供了只对部分问题进行测试的选项
+    output_fname对应结果输出路径，可输出PuLP和实现的DS流程对各测试问题的求解结果和时间，用于后续数据分析
+    random_seed可指定随机种子，用于在存在随机性的求解流程（例如随机扰动）中固定随机项，保证多次调用的结果的稳定性
+    '''
+    if output_fname is not None:
+        ## 打开输出文件并写入表头
+        f = open(output_fname,'w+')
+        f.write('model name\tsize\ttime solver\tobj solver\ttime pulp\tobj pulp\tobj matched?\n')
+    
+    if random_seed is None:
+        ## 用当前时间作为随机种子
+        random_seed = int(time.time())
+    print('random seed = {}.'.format(random_seed))
+    
+    evaluator = Evaluator()
+    if model_fnames is None:
+        ## 默认读取所有测试问题
+        model_fnames = sorted(glob.glob('netlib/*.SIF'))
+    for fname in model_fnames:
+        model_name = fname.split('/')[-1].split('.')[0]
+
+        ## 读取测试问题
+        A_dict,b_dict,sense_dict,c_dict,l_dict,u_dict,m,n,row_key,col_key = read_mps(fname)
+        A,b,sense,c,l,u = dicts_to_computable(A_dict,b_dict,sense_dict,c_dict,l_dict,u_dict,m,n)
+
+        ## 根据测试问题大小进行筛选
+        if A.nnz < max_problem_size:
+            evaluator.reset(A,b,sense,c,l,u)
+            size = (A.shape,A.nnz)
+            print('\nProblem name: {}, size: ({},{}).'.format(model_name,A.shape,A.nnz))
+            
+            time_pulp,time_ds,obj_pulp,obj_ds = np.nan,np.nan,np.nan,np.nan
+            bool_match = False
+            try:
+                ## 调用PuLP求解
+                tt = time.time()
+                print("[----Launch PuLP----]")
+                x_pulp,lam_pulp,status_pulp = solve_pulp(A_dict,b_dict,sense_dict,c_dict,l_dict,u_dict,
+                                                         m,n,msg=1)
+                time_pulp = time.time() - tt
+
+                ## 调用实现的DS流程求解
+                np.random.seed(random_seed)
+                tt = time.time()
+                print("[----Launch Solver----]")
+                status_ds,sol_ds,basis_ds = solve_func(A,b,sense,c,l,u)
+                x_ds = sol_ds.x
+                time_ds = time.time() - tt
+                
+                ## 比较求解结果
+                obj_pulp = evaluator.eval_primal_obj(x_pulp)
+                obj_ds = evaluator.eval_primal_obj(x_ds)
+                print("[----Begin evaluation----]")
+                print(f"PuLP Eval: {evaluator.eval_str(x_pulp)} Status: {status_pulp}.")
+                print(f"Solver Eval: {evaluator.eval_str(x_ds)} Status: {status_ds}.")
+                print(f"Elapsed time: PuLP = {time_pulp:.3f}, Solver = {time_ds:.3f}.")
+                bool_match = np.abs(obj_ds - obj_pulp) <= 1e-4 * np.abs(obj_pulp)
+                print(f"Two solvers {'match' if bool_match else 'mismatch'}: "
+                      f"PuLP = {obj_pulp:.4e}, Solver = {obj_ds:.4e}.")
+
+            except Exception as e:
+                print(repr(e))
+                print(traceback.print_exc())
+                
+            if output_fname is not None:
+                ## 输出求解结果
+                f.write(f"{model_name}\t{size}\t{time_ds:.3f}\t{obj_ds:.4e}\t"
+                        f"{time_pulp:.3f}\t{obj_pulp:.4e}\t{bool_match}\n")
+
+    if output_fname is not None:
+        f.close()
