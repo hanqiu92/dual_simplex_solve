@@ -1,0 +1,116 @@
+Timer unit: 1e-06 s
+
+Total time: 394.867 s
+File: /Users/hanqiu/dual_simplex_solve/final.py
+Function: _step at line 1033
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+  1033                                               def _step(self,problem,sol,basis):
+  1034     53263     186521.0      3.5      0.0          header = self._get_header()
+  1035                                           
+  1036                                                   ## step 1: pricing, 选出离开下标idxBI = idxB[idxI], 并计算相应对偶变量的单位变化量
+  1037     53263   44085473.0    827.7     11.2          status_inner,idxI,idxBI,primal_gap = self._pricing(problem,sol,basis)
+  1038     53263     104698.0      2.0      0.0          if status_inner != SolveStatus.ONGOING:
+  1039         4          4.0      1.0      0.0              return status_inner,problem,sol,basis
+  1040     53259      98688.0      1.9      0.0          dual_grad = abs(primal_gap) ## 原始变量的不可行程度正是对偶问题的梯度
+  1041                                           
+  1042     53259     161073.0      3.0      0.0          bool_to_lower_bound = sol.x[idxBI] <= problem.l[idxBI]
+  1043     53259      62689.0      1.2      0.0          direcDualI = 1 if bool_to_lower_bound else -1 ## 原始变量的移动方向
+  1044                                                   
+  1045                                                   ## 计算对偶变量的单位变化量
+  1046     53259     757799.0     14.2      0.2          sB_grad0 = basis.get_elem_vec(idxI,if_transpose=True) ## A_B^{-T}e_I
+  1047     53259   50622983.0    950.5     12.8          lam_grad0 = basis.solve(sB_grad0,if_transpose=True) ## A_B^{-T}e_I
+  1048     53259   24439183.0    458.9      6.2          s_grad0 = basis.dot(lam_grad0,if_transpose=True) ## A^TA_B^{-T}e_I
+  1049     53259     108386.0      2.0      0.0          if direcDualI == -1:
+  1050     12489      12580.0      1.0      0.0              lam_grad = lam_grad0
+  1051     12489    1391473.0    111.4      0.4              s_grad = -s_grad0
+  1052                                                   else:
+  1053     40770    1060067.0     26.0      0.3              lam_grad = -lam_grad0
+  1054     40770      47135.0      1.2      0.0              s_grad = s_grad0
+  1055                                           
+  1056                                                   ## step 2: ratio test, 选出进入下标idxNJ = idxN[idxJ]
+  1057     53259   46186582.0    867.2     11.7          status_inner,idxJ,idxNJ,alpha_dual,flip_list,check_list = self._ratio_test(problem,sol,basis,s_grad,dual_grad)
+  1058     53259     135791.0      2.5      0.0          if status_inner != SolveStatus.ONGOING:
+  1059                                                       return status_inner,problem,sol,basis
+  1060                                           
+  1061                                                   ## step 3: 更新结果
+  1062     53259    1670258.0     31.4      0.4          aNJ = basis.get_col(idxNJ) ## A_j
+  1063     53259   67037128.0   1258.7     17.0          xB_grad0 = basis.solve(aNJ,if_transpose=False) ## A_B^{-1}A_j
+  1064     53259     969486.0     18.2      0.2          xB_grad = - xB_grad0
+  1065     53259    1707053.0     32.1      0.4          betaI = np.dot(lam_grad0,lam_grad0)
+  1066     53259   70793987.0   1329.2     17.9          tau = basis.solve(lam_grad0,if_transpose=False)
+  1067                                                   
+  1068                                                   ## 校核数值稳定性并进行处理
+  1069                                                   if True:
+  1070                                                       ## 校核通过\delta s和\delta x_B计算得到的alpha = e_I^T A_B^{-1} a_{NJ}的一致性
+  1071     53259     205716.0      3.9      0.1              err_pivot = s_grad0[idxNJ] + xB_grad[idxI]
+  1072     53259     288801.0      5.4      0.1              if abs(err_pivot) > PRIMAL_TOL * (1 + abs(xB_grad[idxI])):
+  1073                                                           print('{}  WARN FTRAN/BTRAN pivot consistency err {:.4e}.'.format(header,err_pivot))
+  1074                                                           return SolveStatus.REFACTOR,problem,sol,basis
+  1075                                                       ## 校核通过\delta s计算得到的e_I^T A_B^T A_B^{-T} e_I = e_I^T e_I = 1的准确性
+  1076     53259     117528.0      2.2      0.0              err_btran = s_grad0[idxBI] - 1
+  1077     53259      90044.0      1.7      0.0              if abs(err_btran) > DUAL_TOL:
+  1078                                                           print('{}  WARN BTRAN accuracy err {:.4e}.'.format(header,err_btran))
+  1079                                                           return SolveStatus.REFACTOR,problem,sol,basis
+  1080                                                       ## 校核pivot element的大小
+  1081     53259     120239.0      2.3      0.0              if abs(xB_grad[idxI]) < PIVOT_TOL / 1e1:
+  1082                                                           print('{}  WARN pivot size {:.4e}.'.format(header,xB_grad[idxI]))
+  1083                                                           if abs(xB_grad[idxI]) < ZERO_TOL:
+  1084                                                               return SolveStatus.ROLLBACK,problem,sol,basis
+  1085                                                   if False:
+  1086                                                       ## 校核DSE权重的准确性
+  1087                                                       err_dse = betaI - basis.DSE_weights[idxI]
+  1088                                                       if abs(err_dse) > PIVOT_TOL * 10:
+  1089                                                           print('{}  WARN DSE accuracy err {:.4e}.'.format(header,err_dse))
+  1090                                                   
+  1091                                                   ## 更新对偶变量
+  1092     53259    2631051.0     49.4      0.7          sol.lam += alpha_dual * lam_grad
+  1093     53259   11437065.0    214.7      2.9          sol.s += alpha_dual * s_grad
+  1094                                           
+  1095                                                   ## 更新原始变量  
+  1096     53259     143323.0      2.7      0.0          if len(flip_list) > 0:
+  1097                                                       ## 对x_N进行翻转
+  1098     11919     226360.0     19.0      0.1              idx_flip_to_lower = flip_list[sol.sign[flip_list] == VarStatus.AT_UPPER_BOUND.value]
+  1099     11919     101204.0      8.5      0.0              idx_flip_to_upper = flip_list[sol.sign[flip_list] == VarStatus.AT_LOWER_BOUND.value]
+  1100     11919      48452.0      4.1      0.0              sol.x[idx_flip_to_lower] = problem.l[idx_flip_to_lower]
+  1101     11919      28183.0      2.4      0.0              sol.x[idx_flip_to_upper] = problem.u[idx_flip_to_upper]
+  1102     11919      44385.0      3.7      0.0              sol.sign[idx_flip_to_lower] = VarStatus.AT_LOWER_BOUND.value
+  1103     11919      36445.0      3.1      0.0              sol.sign[idx_flip_to_upper] = VarStatus.AT_UPPER_BOUND.value
+  1104                                                       ## 根据翻转的x_N，更新x_B
+  1105     11919     440931.0     37.0      0.1              delta_x_flipped = np.zeros((basis.m,))
+  1106     11919      56323.0      4.7      0.0              delta_x_flipped[idx_flip_to_lower] = -problem.bounds_gap[idx_flip_to_lower]
+  1107     11919      21941.0      1.8      0.0              delta_x_flipped[idx_flip_to_upper] = problem.bounds_gap[idx_flip_to_upper]
+  1108     11919    5089134.0    427.0      1.3              delta_b_flipped = basis.dot(delta_x_flipped,if_transpose=False)
+  1109     11919   18032017.0   1512.9      4.6              delta_xB = - basis.solve(delta_b_flipped,if_transpose=False)
+  1110     11919    2401579.0    201.5      0.6              sol.x[basis.idxB] += delta_xB
+  1111     11919      24447.0      2.1      0.0              delta_xBI = delta_xB[idxI]
+  1112                                                   else:
+  1113     41340      46568.0      1.1      0.0              delta_xBI = 0
+  1114                                           
+  1115                                                   ## 然后，计算原始步长，并更新x_j和x_B
+  1116     53259     199657.0      3.7      0.1          alpha_primal = (-primal_gap - delta_xBI) / xB_grad[idxI]
+  1117     53259   12621807.0    237.0      3.2          sol.x[basis.idxB] += alpha_primal * xB_grad
+  1118     53259     211250.0      4.0      0.1          sol.x[idxBI] = problem.l[idxBI] if bool_to_lower_bound else problem.u[idxBI]
+  1119     53259     537704.0     10.1      0.1          sol.sign[idxBI] = VarStatus.AT_LOWER_BOUND.value if bool_to_lower_bound else VarStatus.AT_UPPER_BOUND.value
+  1120     53259     121127.0      2.3      0.0          sol.x[idxNJ] += alpha_primal
+  1121     53259     177543.0      3.3      0.0          sol.sign[idxNJ] = VarStatus.OTHER.value ## 进入B
+  1122                                                   
+  1123                                                   ## 检查解的对偶可行性并及时进行shift操作
+  1124     53259      92749.0      1.7      0.0          if len(check_list) > 0:
+  1125     53259    3676126.0     69.0      0.9              problem,sol = self._shift(problem,sol,check_list=check_list)
+  1126                                           
+  1127                                                   ## 更新基
+  1128     53259     114375.0      2.1      0.0          basis.idxB[idxI] = idxNJ
+  1129     53259     141961.0      2.7      0.0          basis.idxN[idxJ] = idxBI
+  1130     53259      97840.0      1.8      0.0          basis.boolN[idxBI] = True
+  1131     53259      71050.0      1.3      0.0          basis.boolN[idxNJ] = False
+  1132                                                   ## 更新PFI和DSE信息
+  1133     53259    3428865.0     64.4      0.9          eta_vec = -xB_grad0 / xB_grad0[idxI]
+  1134     53259     211005.0      4.0      0.1          eta_vec[idxI] += 1 / xB_grad0[idxI]
+  1135     53259      61847.0      1.2      0.0          eta = (idxI,eta_vec)
+  1136     53259     288720.0      5.4      0.1          basis.lu_update(eta=eta)
+  1137     53259   14890631.0    279.6      3.8          basis.update_DSE_weights(idxI,xB_grad0,tau,betaI)        
+  1138     53259    4500500.0     84.5      1.1          sol.s[basis.idxB] = 0
+  1139                                                   
+  1140     53259     151893.0      2.9      0.0          return SolveStatus.ONGOING,problem,sol,basis
